@@ -1,17 +1,18 @@
 #!/usr/bin/python
 
+# Import what you need.
+#
 # Ordinarily, you shouldn't pull in the entire module for these, especially for cgi - tends to junk 
-# up your namespace
+# up your namespace, so I prefer to qualify the names of my libraries in here.
 
 import urllib2
-import cgi
 import urlparse
 import socket
 import os 
 
 # Flag this to set whether to be verbose about the error codes we're getting
 
-debug = True
+debug = False
 
 # Method to split a cname into a subdomain, domain, and tld from a URL
 def domainRetrieveFromURL(url):
@@ -76,7 +77,7 @@ def isIP(testValue):
 # WORLD.
 # 
 # Take in a string, put out a bool with the validity of the hostname
-def isValidDomain(testValue):
+def isResolvableDomain(testValue):
     # Perform os-level nslookup of hostname
     #
     # A good response means it's a valid domain
@@ -92,10 +93,8 @@ def isValidDomain(testValue):
 # If the user doesn't put in a port here, assume 80
 #
 # The only reason to use the unsafe function is to deal with a domain that is, indeed down.
-# The question is whether or not you really want to deal with the risk of a potential buffer overflow or 
-# other attack.
-#
-# Better safe than sorry.
+# The question is whether or not you really want to deal with the risk of a potential buffer
+# overflow or other attack.
 def saferIsValidDomain(testValue, testPort=80):
     # Perform sockets-library nslookup of hostname
     #
@@ -107,63 +106,81 @@ def saferIsValidDomain(testValue, testPort=80):
     #Any error here means one of the above isn't true.
     except:
         return False
-    
 
-def attemptDomainConnect(url):
-    
-    # Attempt to connect to the desired URL.  If it works, that means the site can talk to the remote
-    # host.  Assuming it doesn't, it attempts to do the following:
-    #    1) Attempts to connect to the subdomain in the URL
-    #    2) Attempts to connect to the domain in the URL
-    #    TO DO:  3) Attempts ICMP to the subdomain in the URL
-    #    TO DO:  4) Attempts ICMP to the domain in the URL
+
+# Method to check if this is a valid URL.
+def isURL(testValue):
+    # Perform urllib2-library connection for hostname
     #
-    #    
-    
+    # A good response means it's a valid URL, and it's open
     try:
-        
-        # Get the domain, TLD, and subdomain info
-        testTLD, testDomain, testFullDomain = domainRetrieve(url)
-        
-        # Attempt to pull the URL with no further cleanup on it
-        if urlRetrieve(url):
-            
-            # We found it, so notify the user, and stop trying.
-            print "Unfortunately the URL \" " + url + "\" seems to be up."
-            
-        else:
-                
-            # We didn't get the full URL, so try the subdomain, and see if the user
-            # fat-fingered the target page
-            
-            if (urlRetrieve(testFullDomain) == True):
-                
-                # We found the subdomain, just not the URL the user was looking for
-                # so notify them and stop trying.
-                print "The URL \" " + url + "\" seems not to be responding."
-                print "It's parent domain, \"" + testFullDomain + "\"however, is."
-                print "Have you checked the page you're looking for is available?"
-                
-            elif testDomain != testFullDomain: 
-                
-                # We didn't find the subdomain, and the full domain are different, so let's 
-                # try the full domain
-                
-                if (urlRetrieve(testDomain) == True):
-                
-                    print "The URL \" " + url + "\" seems not to be responding."
-                    print "It's base domain, \"" + testDomain + "\"isn't either."
-                
-            else: 
-                #code for ICMP for the subdomain goes here.
-                pass
-                
-                if testDomain != testFullDomain: 
-                    pass
-                    #code for the ICMP test for the domain goes here.
-                    
+        urllib2.urlopen(testValue)
+        return True
+    # A URLError means it was a valid URL, for a known protocol, but didn't work.
+    # That's OK, we can still work with that, but need to figure out if it's up.
+    except urllib2.URLError:
+        return True
+    # Anything else here, means it wasn't a valid URL, and is never going to be.
     except:
-        print "Something awful and unexpected happened here."
+        return False
+        
+# This method wraps all the isXXX methods.  This returns two values, one
+# listing if it's a URL, domain, IP address, or rubbish
+def whatKindOfResourceIsThis(questionableAddress):
 
-google="http://www.google.com"
-attemptDomainConnect(google)
+    try:
+        # Easiest to tell is if it's an IP
+        if isIP(questionableAddress):
+            return "IP"
+        # Then domain
+        elif saferIsValidDomain(questionableAddress):
+            return "Domain"
+        # Then URL (this actually attempts to connect to something, so it shouldn't be
+        # run unless we absolutely have to.
+        elif isURL(questionableAddress):
+            return "URL" 
+        # Otherwise, it's either garbage or unresolvable
+        else:
+            return "Unresolvable"
+    except: 
+        print "Something very bad happened here.  All of the checks here should've had handled"
+        print "exceptions therein without having any issues whatsoever.  IF you're seeing this,"
+        print "something broke."
+        
+# This method attempts to take a connection address, and type and attempt to create a socket 
+# to it.  It returns True/False, based on the results
+# Valid types are "Domain", "URL", "IP", and "Unresolvable."
+def upOrDown(address, addressType): 
+    # For the record, I dislike there isn't a switch block in Python
+    # Add on an http for Domains and IPs
+    if (addressType=="Domain") or (addressType=="IP"):
+        try:
+            urllib2.urlopen("http://" + address)
+            return True
+        except:
+            return False
+    #if it's a URL, I'll let them specify the protocol
+    elif addressType=="URL":
+        try:
+            urllib2.urlopen(address)
+            return True
+        except:
+            return False
+    #if it's anything else, why even bother
+    else:
+            return False
+        
+
+
+print whatKindOfResourceIsThis("http://www.google.com")
+print whatKindOfResourceIsThis("www.google.com")
+print whatKindOfResourceIsThis("google.com")
+print whatKindOfResourceIsThis("127.0.0.1")
+print whatKindOfResourceIsThis("Ppppphthhhtbbbt")
+print whatKindOfResourceIsThis("@@@@@@@@@")
+print upOrDown("http://www.google.com", "URL")
+print upOrDown("www.google.com", "Domain")
+print upOrDown("google.com", "Domain")
+print upOrDown("127.0.0.1", "IP")
+print upOrDown("Ppppphhhtpbbbt.com", "Domain")
+print upOrDown("@@@@@@@@@@@@@@@", "Domain")
